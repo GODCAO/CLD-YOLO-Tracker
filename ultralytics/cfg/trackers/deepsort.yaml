@@ -1,0 +1,9 @@
+# ultralytics/cfg/trackers/deepsort.yaml
+tracker_type: deepsort
+track_high_thresh: 0.25  # 高置信度检测框的阈值
+track_low_thresh: 0.1   # 低置信度检测框的阈值（用于关联）
+new_track_thresh: 0.25   # 初始化新轨迹的阈值
+max_age: 30             # 轨迹丢失后最大保留帧数
+n_init: 3               # 初始匹配成功的帧数，之后轨迹状态才转为confirmed
+nn_budget: 100          # 外观特征缓存的大小
+mc_lambda: 0.995        # 运动补偿参数
