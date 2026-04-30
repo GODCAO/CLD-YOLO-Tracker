@@ -34,7 +34,7 @@ if __name__ == '__main__':
  ) 
 ``` 
 
-# Test 
+# Test object model
 ``` python
 import warnings 
 warnings.filterwarnings('ignore') 
