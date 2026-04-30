@@ -20,7 +20,7 @@ import os
 if __name__ == '__main__': 
   model = YOLO('CLD-YOLO.yaml') 
   results = model.train(
-    data='datasets path',  
+    data='datasets path',  # datasets path
     epochs=200, 
     batch=32, 
     imgsz=640, 
