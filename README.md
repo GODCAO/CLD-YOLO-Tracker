@@ -2,13 +2,14 @@
 
 
 # Bash
-1. git clone https://github.com/GODCAO/CLD-YOLO-Tracker.git
-2. conda create -n cldtrack python=3.11 
+git clone https://github.com/GODCAO/CLD-YOLO-Tracker.git
+conda create -n cldtrack python=3.11 
 conda activate cldtrack 
 pip install -r requirements.txt 
 
 
 # Train object model
+''' python
 import warnings 
 from ultralytics.utils.torch_utils import profile 
 warnings.filterwarnings('ignore') 
@@ -30,7 +31,7 @@ if __name__ == '__main__':
     optimizer='SGD',  
     workers=8,
  ) 
-
+'''
 
 # Test 
 import warnings 
