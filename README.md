@@ -2,45 +2,47 @@
 
 
 # Bash
-conda create -n cldtrack python=3.11 \n
-conda activate cldtrack \n
-pip install -r requirements.txt \n
+git clone https://github.com/GODCAO/CLD-YOLO-Tracker.git
+conda create -n cldtrack python=3.11 
+conda activate cldtrack 
+pip install -r requirements.txt 
 
 
 # Train object model
-import warnings \n
-from ultralytics.utils.torch_utils import profile \n
-warnings.filterwarnings('ignore') \n
-from ultralytics import YOLO, RTDETR \n
-import os \n
+''' python
+import warnings 
+from ultralytics.utils.torch_utils import profile 
+warnings.filterwarnings('ignore') 
+from ultralytics import YOLO, RTDETR 
+import os 
 
-if __name__ == '__main__': \n
-  model = YOLO('CLD-YOLO.yaml') \n
-  results = model.train( \n
-    data='datasets path',   \n 
-    epochs=200, \n
-    batch=32, \n
-    imgsz=640, \n
-    scale=0.5, \n
-    mosaic=1.0, \n
-    mixup=0.0, \n
-    copy_paste=0.1, \n
-    device=0,  \n
-    optimizer='SGD',  \n
-    workers=8,\n
+if __name__ == '__main__': 
+  model = YOLO('CLD-YOLO.yaml') 
+  results = model.train(
+    data='datasets path',  
+    epochs=200, 
+    batch=32, 
+    imgsz=640, 
+    scale=0.5, 
+    mosaic=1.0, 
+    mixup=0.0, 
+    copy_paste=0.1, 
+    device=0,  
+    optimizer='SGD',  
+    workers=8,
  ) 
 
 
 # Test 
-import warnings \n
-warnings.filterwarnings('ignore') \n
-from ultralytics import YOLO, RTDETR \n
+import warnings 
+warnings.filterwarnings('ignore') 
+from ultralytics import YOLO, RTDETR 
 
-if __name__ == "__main__": \n
-    model = YOLO('model path')   # best.pt  \n
-    model.val(data='datasets path', device=0, workers=0, save_json=True) \n
+if __name__ == "__main__": 
+    model = YOLO('model path')   # best.pt  
+    model.val(data='datasets path', device=0, workers=0, save_json=True) 
 
 
 # Tracking(MOT) 
-The parameter settings are located in the common_config.py. \n
-Run yolo-ocsort.py \n
+The parameter settings are located in the common_config.py. 
+Run yolo-ocsort.py 
