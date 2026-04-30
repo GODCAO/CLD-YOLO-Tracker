@@ -47,6 +47,7 @@ if __name__ == "__main__":
 
 # Tracking(MOT) 
 ``` python
+cd /MOT
 The parameter settings are located in the common_config.py. 
 Run yolo-ocsort.py
 ``` 
