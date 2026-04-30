@@ -1,13 +1,13 @@
 CLD-YOLO-Tracker
 
 
-<>Bash
+# Bash
 conda create -n cldtrack python=3.11
 conda activate cldtrack
 pip install -r requirements.txt
 
 
-Train object model
+# Train object model
 import warnings
 from ultralytics.utils.torch_utils import profile
 warnings.filterwarnings('ignore')
@@ -16,10 +16,8 @@ import os
 
 if __name__ == '__main__':
   model = YOLO('CLD-YOLO.yaml')
-  # model = RTDETR("ultralytics/cfg/models/rt-detr/rtdetr-resnet50.yaml")
-  # model.load('yolo12n.pt')
   results = model.train(
-    data='',  #  datasets path
+    data='datasets path',    
     epochs=200, 
     batch=32, 
     imgsz=640, 
@@ -34,17 +32,16 @@ if __name__ == '__main__':
 )
 
 
-Test 
+# Test 
 import warnings
 warnings.filterwarnings('ignore')
 from ultralytics import YOLO, RTDETR
 
 if __name__ == "__main__":
     model = YOLO('model path')   # best.pt 
-    # model = RTDETR('model path')
     model.val(data='datasets path', device=0, workers=0, save_json=True)
 
 
-Tracking(MOT)
+# Tracking(MOT)
 The parameter settings are located in the common_config.py.
 Run yolo-ocsort.py
