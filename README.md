@@ -2,11 +2,12 @@
 
 
 # Bash
+``` python
 git clone https://github.com/GODCAO/CLD-YOLO-Tracker.git
 conda create -n cldtrack python=3.11 
 conda activate cldtrack 
-pip install -r requirements.txt 
-
+pip install -r requirements.txt
+```
 
 # Train object model
 ``` python
@@ -34,15 +35,18 @@ if __name__ == '__main__':
 ``` 
 
 # Test 
+``` python
 import warnings 
 warnings.filterwarnings('ignore') 
 from ultralytics import YOLO, RTDETR 
 
 if __name__ == "__main__": 
     model = YOLO('model path')   # best.pt  
-    model.val(data='datasets path', device=0, workers=0, save_json=True) 
-
+    model.val(data='datasets path', device=0, workers=0, save_json=True)
+```
 
 # Tracking(MOT) 
+``` python
 The parameter settings are located in the common_config.py. 
-Run yolo-ocsort.py 
+Run yolo-ocsort.py
+``` 
