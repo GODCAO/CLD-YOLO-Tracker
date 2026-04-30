@@ -9,7 +9,7 @@ pip install -r requirements.txt
 
 
 # Train object model
-''' python
+``` python
 import warnings 
 from ultralytics.utils.torch_utils import profile 
 warnings.filterwarnings('ignore') 
@@ -31,7 +31,7 @@ if __name__ == '__main__':
     optimizer='SGD',  
     workers=8,
  ) 
-'''
+``` 
 
 # Test 
 import warnings 
