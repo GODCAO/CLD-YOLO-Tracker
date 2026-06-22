@@ -22,7 +22,7 @@ if __name__ == '__main__':
   results = model.train(
     data='datasets path',  # datasets path
     epochs=200, 
-    batch=32, 
+    batch=16, 
     imgsz=640, 
     scale=0.5, 
     mosaic=1.0, 
