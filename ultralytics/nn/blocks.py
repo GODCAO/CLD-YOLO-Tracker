@@ -2531,6 +2531,124 @@ class ASFF_3(nn.Module):
 
         return out
 
+
+class Upsample(nn.Module):
+    """Applies convolution followed by upsampling."""
+
+    def __init__(self, c1, c2, scale_factor=2):
+        super().__init__()
+        if scale_factor == 2:
+            self.cv1 = nn.ConvTranspose2d(c1, c2, 2, 2, 0, bias=True)  # nn.Upsample(scale_factor=2, mode='nearest')
+        elif scale_factor == 4:
+            self.cv1 = nn.ConvTranspose2d(c1, c2, 4, 4, 0, bias=True)  # nn.Upsample(scale_factor=4, mode='nearest')
+
+    def forward(self, x):
+        # return self.upsample(self.cv1(x))
+        return self.cv1(x)
+
+
+class ASFF2(nn.Module):
+    """ASFF2 module for YOLO AFPN head https://arxiv.org/abs/2306.15988"""
+
+    def __init__(self, c1, c2, level=0):
+        super().__init__()
+        c1_l, c1_h = c1[0], c1[1]
+        self.level = level
+        self.dim = c1_l, c1_h
+        self.inter_dim = self.dim[self.level]
+        compress_c = 8
+
+        if level == 0:
+            self.stride_level_1 = Upsample(c1_h, self.inter_dim)
+        if level == 1:
+            self.stride_level_0 = Conv(c1_l, self.inter_dim, 2, 2, 0)  # downsample 2x
+
+        self.weight_level_0 = Conv(self.inter_dim, compress_c, 1, 1)
+        self.weight_level_1 = Conv(self.inter_dim, compress_c, 1, 1)
+
+        self.weights_levels = nn.Conv2d(compress_c * 2, 2, kernel_size=1, stride=1, padding=0)
+        self.conv = Conv(self.inter_dim, self.inter_dim, 3, 1)
+
+    def forward(self, x):
+        x_level_0, x_level_1 = x[0], x[1]
+
+        if self.level == 0:
+            level_0_resized = x_level_0
+            level_1_resized = self.stride_level_1(x_level_1)
+        elif self.level == 1:
+            level_0_resized = self.stride_level_0(x_level_0)
+            level_1_resized = x_level_1
+
+        level_0_weight_v = self.weight_level_0(level_0_resized)
+        level_1_weight_v = self.weight_level_1(level_1_resized)
+        levels_weight_v = torch.cat((level_0_weight_v, level_1_weight_v), 1)
+        levels_weight = self.weights_levels(levels_weight_v)
+        levels_weight = F.softmax(levels_weight, dim=1)
+
+        fused_out_reduced = level_0_resized * levels_weight[:, 0:1] + level_1_resized * levels_weight[:, 1:2]
+        return self.conv(fused_out_reduced)
+
+
+class ASFF3(nn.Module):
+    """ASFF3 module for YOLO AFPN head https://arxiv.org/abs/2306.15988"""
+
+    def __init__(self, c1, c2, level=0):
+        super().__init__()
+        c1_l, c1_m, c1_h = c1[0], c1[1], c1[2]
+        self.level = level
+        self.dim = c1_l, c1_m, c1_h
+        self.inter_dim = self.dim[self.level]
+        compress_c = 8
+
+        if level == 0:
+            self.stride_level_1 = Upsample(c1_m, self.inter_dim)
+            self.stride_level_2 = Upsample(c1_h, self.inter_dim, scale_factor=4)
+
+        if level == 1:
+            self.stride_level_0 = Conv(c1_l, self.inter_dim, 2, 2, 0)  # downsample 2x
+            self.stride_level_2 = Upsample(c1_h, self.inter_dim)
+
+        if level == 2:
+            self.stride_level_0 = Conv(c1_l, self.inter_dim, 4, 4, 0)  # downsample 4x
+            self.stride_level_1 = Conv(c1_m, self.inter_dim, 2, 2, 0)  # downsample 2x
+
+        self.weight_level_0 = Conv(self.inter_dim, compress_c, 1, 1)
+        self.weight_level_1 = Conv(self.inter_dim, compress_c, 1, 1)
+        self.weight_level_2 = Conv(self.inter_dim, compress_c, 1, 1)
+
+        self.weights_levels = nn.Conv2d(compress_c * 3, 3, kernel_size=1, stride=1, padding=0)
+        self.conv = Conv(self.inter_dim, self.inter_dim, 3, 1)
+
+    def forward(self, x):
+        x_level_0, x_level_1, x_level_2 = x[0], x[1], x[2]
+
+        if self.level == 0:
+            level_0_resized = x_level_0
+            level_1_resized = self.stride_level_1(x_level_1)
+            level_2_resized = self.stride_level_2(x_level_2)
+
+        elif self.level == 1:
+            level_0_resized = self.stride_level_0(x_level_0)
+            level_1_resized = x_level_1
+            level_2_resized = self.stride_level_2(x_level_2)
+
+        elif self.level == 2:
+            level_0_resized = self.stride_level_0(x_level_0)
+            level_1_resized = self.stride_level_1(x_level_1)
+            level_2_resized = x_level_2
+
+        level_0_weight_v = self.weight_level_0(level_0_resized)
+        level_1_weight_v = self.weight_level_1(level_1_resized)
+        level_2_weight_v = self.weight_level_2(level_2_resized)
+
+        levels_weight_v = torch.cat((level_0_weight_v, level_1_weight_v, level_2_weight_v), 1)
+        w = self.weights_levels(levels_weight_v)
+        w = F.softmax(w, dim=1)
+
+        fused_out_reduced = level_0_resized * w[:, :1] + level_1_resized * w[:, 1:2] + level_2_resized * w[:, 2:]
+        return self.conv(fused_out_reduced)
+
+
 class DWConvPW1(nn.Module):
     """Depthwise(3x3) + Pointwise(1x1)"""
     def __init__(self, in_ch, out_ch, k=3, s=2, p=1, bias=False):
@@ -3498,55 +3616,6 @@ class PiConv(nn.Module):
         return y
 
 
-# class SK(nn.Module):
-#     def __init__(self,
-#                  channels: int,
-#                  kernels=(3, 5),
-#                  reduction: int = 16,
-#                  L: int = 32,
-#                  groups: int = 1,
-#                  act: str = 'silu',
-#                  ):
-#         super().__init__()
-#         assert channels > 0
-#         self.channels = channels
-#         self.kernels = kernels
-#         self.M = len(self.kernels)
-#         if act.lower() == 'silu':
-#             self.act = nn.SiLU(inplace=True)
-#         elif act.lower() == 'relu':
-#             self.act = nn.ReLU(inplace=True)
-#         else:
-#             self.act = nn.SiLU(inplace=True)
-#         self.branchs = nn.ModuleList()
-#         for k in kernels:
-#             p = k // 2
-#             self.branchs.append(
-#                 nn.Sequential(
-#                     nn.Conv2d(channels, channels, kernel_size=k, padding=p, groups=groups, bias=False),
-#                     nn.BatchNorm2d(channels),
-#                     self.act,
-#                 )
-#             )
-#         self.gap = nn.AdaptiveAvgPool2d(1)
-#         d = max(channels // reduction, L)
-#         self.fc = nn.Sequential(
-#             nn.Conv2d(channels, d, kernel_size=1, bias=False),
-#             nn.BatchNorm2d(d),
-#             self.act,
-#         )
-#         self.fc_branches = nn.ModuleList([nn.Conv2d(d, channels, kernel_size=1, bias=True) for _ in range(self.M)])
-#
-#     def forward(self, x: torch.Tensor) -> torch.Tensor:
-#         feats = [br(x) for br in self.branchs]
-#         feats_stack = torch.stack(feats, dim=1)
-#         U = feats_stack.sum(dim=1)
-#         s = self.gap(U)
-#         z = self.fc(s)
-#         logits = torch.stack([fc(z) for fc in self.fc_branches], dim=1)
-#         attn = F.softmax(logits, dim=1)
-#         out = (feats_stack * attn).sum(dim=1)
-#         return out
 class SK(nn.Module):
 
     def __init__(self, channel=512, kernels=[1, 3, 5, 7], reduction=16, group=1, L=32):
@@ -3680,7 +3749,7 @@ class PiBottleneck(nn.Module):
         """Initializes a standard bottleneck module with optional shortcut connection and configurable parameters."""
         super().__init__()
         c_ = int(c2 * e)  # hidden channels
-        self.cv1 = PiConv(c1, c_, k[0], 1)
+        self.cv1 = Conv(c1, c_, k[0], 1)
         self.cv2 = PiConv(c_, c2, k[1], 1)
         self.add = shortcut and c1 == c2
 
@@ -3716,7 +3785,7 @@ class PBottleneck(nn.Module):
         """Initializes a standard bottleneck module with optional shortcut connection and configurable parameters."""
         super().__init__()
         c_ = int(c2 * e)  # hidden channels
-        self.cv1 = Conv(c1, c_, k[1], 1)
+        self.cv1 = Conv(c1, c_, 1, 1)
         self.cv2 = PConv(c_, c2, )
         self.add = shortcut and c1 == c2
 
@@ -3833,3 +3902,270 @@ class MHSA(nn.Module):
         return out
 
 
+class PsConv(nn.Module):
+    ''' Pinwheel-shaped Convolution using the Asymmetric Padding method. '''
+
+    def __init__(self, c1, c2, k, s):
+        super().__init__()
+
+        # self.k = k
+        p = [(k, 0, 1, 0), (0, k, 0, 1), (0, 1, k, 0), (1, 0, 0, k)]
+        self.pad = [nn.ZeroPad2d(padding=(p[g])) for g in range(4)]
+        self.cw = Conv(c1, c2 // 4, (1, k), s=s, p=0)
+        self.ch = Conv(c1, c2 // 4, (k, 1), s=s, p=0)
+        self.cat = Conv(c2, c2, 2, s=1, p=0)
+
+    def forward(self, x):
+        yw0 = self.cw(self.pad[0](x))
+        yw1 = self.cw(self.pad[1](x))
+        yh0 = self.ch(self.pad[2](x))
+        yh1 = self.ch(self.pad[3](x))
+        return self.cat(torch.cat([yw0, yw1, yh0, yh1], dim=1))
+
+
+class APC2f(nn.Module):
+    """Faster Implementation of APCSP Bottleneck with Asymmetric Padding convolutions."""
+
+    def __init__(self, c1, c2, n=1, shortcut=False, P=True, g=1, e=0.5):
+        """Initialize CSP bottleneck layer with two convolutions with arguments ch_in, ch_out, number, shortcut, groups,
+        expansion.
+        """
+        super().__init__()
+        self.c = int(c2 * e)  # hidden channels
+        self.cv1 = Conv(c1, 2 * self.c, 1, 1)
+        self.cv2 = Conv((2 + n) * self.c, c2, 1)  # optional act=FReLU(c2)
+        if P:
+            self.m = nn.ModuleList(
+                PsBottleneck(self.c, self.c, shortcut, g, k=((3, 3), (3, 3)), e=1.0) for _ in range(n))
+        else:
+            self.m = nn.ModuleList(Bottleneck(self.c, self.c, shortcut, g, k=((3, 3), (3, 3)), e=1.0) for _ in range(n))
+
+    def forward(self, x):
+        """Forward pass through APC2f layer."""
+        y = list(self.cv1(x).chunk(2, 1))
+        y.extend(m(y[-1]) for m in self.m)
+        return self.cv2(torch.cat(y, 1))
+
+    def forward_split(self, x):
+        """Forward pass using split() instead of chunk()."""
+        y = list(self.cv1(x).split((self.c, self.c), 1))
+        y.extend(m(y[-1]) for m in self.m)
+        return self.cv2(torch.cat(y, 1))
+
+
+class PsBottleneck(nn.Module):
+    """Asymmetric Padding bottleneck."""
+
+    def __init__(self, c1, c2, shortcut=True, g=1, k=(3, 3), e=0.5):
+        """Initializes a bottleneck module with given input/output channels, shortcut option, group, kernels, and
+        expansion.
+        """
+        super().__init__()
+        c_ = int(c2 * e)  # hidden channels
+        p = [(2, 0, 2, 0), (0, 2, 0, 2), (0, 2, 2, 0), (2, 0, 0, 2)]
+        self.pad = [nn.ZeroPad2d(padding=(p[g])) for g in range(4)]
+        self.cv1 = Conv(c1, c_ // 4, k[0], 1, p=0)
+        self.cv2 = Conv(c_, c2, k[1], 1, g=g)
+        self.add = shortcut and c1 == c2
+
+    def forward(self, x):
+        """'forward()' applies the YOLO FPN to input data."""
+        return x + self.cv2((torch.cat([self.cv1(self.pad[g](x)) for g in range(4)], 1))) if self.add else self.cv2(
+            (torch.cat([self.cv1(self.pad[g](x)) for g in range(4)], 1)))
+
+
+class PsC3k(C3):
+    """C3k is a CSP bottleneck module with customizable kernel sizes for feature extraction in neural networks."""
+
+    def __init__(self, c1, c2, n=1, shortcut=True, g=1, e=0.5, k=3):
+        """Initializes the C3k module with specified channels, number of layers, and configurations."""
+        super().__init__(c1, c2, n, shortcut, g, e)
+        c_ = int(c2 * e)  # hidden channels
+        self.m = nn.Sequential(*(PsBottleneck(c_, c_, shortcut, g, e=1.0) for _ in range(n)))
+
+
+class PsC3k2(C2f):
+    """Faster Implementation of CSP Bottleneck with 2 convolutions."""
+
+    def __init__(self, c1, c2, n=1, c3k=False, e=0.5, g=1, shortcut=True):
+        """Initializes the C3k2 module, a faster CSP Bottleneck with 2 convolutions and optional C3k blocks."""
+        super().__init__(c1, c2, n, shortcut, g, e)
+        self.m = nn.ModuleList(
+            PsC3k(self.c, self.c, 2, shortcut, g) if c3k else PsBottleneck(self.c, self.c, shortcut, g) for _ in range(n)
+        )
+
+
+import copy
+
+class PDetect(nn.Module):
+    """YOLO Detect head for detection models."""
+
+    dynamic = False  # force grid reconstruction
+    export = False  # export mode
+    format = None  # export format
+    end2end = False  # end2end
+    max_det = 300  # max_det
+    shape = None
+    anchors = torch.empty(0)  # init
+    strides = torch.empty(0)  # init
+    legacy = False  # backward compatibility for v3/v5/v8/v9 models
+    light = False
+    def __init__(self, nc=80, ch=()):
+        """Initializes the YOLO detection layer with specified number of classes and channels."""
+        super().__init__()
+        self.nc = nc  # number of classes
+        self.nl = len(ch)  # number of detection layers
+        self.reg_max = 16  # DFL channels (ch[0] // 16 to scale 4/8/12/16/20 for n/s/m/l/x)
+        self.no = nc + self.reg_max * 4  # number of outputs per anchor
+        self.stride = torch.zeros(self.nl)  # strides computed during build
+        c2, c3 = max((16, ch[0] // 4, self.reg_max * 4)), max(ch[0], min(self.nc, 100))  # channels
+        if self.light:
+            self.cv2 = nn.ModuleList(
+                nn.Sequential(Conv(x, c2, 3), PConv(c2, c2,), nn.Conv2d(c2, 4 * self.reg_max, 1)) for x in ch
+            )
+        else:
+            self.cv2 = nn.ModuleList(
+                nn.Sequential(Conv(x, c2, 3), Conv(c2, c2, 3), nn.Conv2d(c2, 4 * self.reg_max, 1)) for x in ch
+            )
+
+        if self.light:
+            self.cv3 = (
+                nn.ModuleList(nn.Sequential(Conv(x, c3, 3), Conv(c3, c3, 3), nn.Conv2d(c3, self.nc, 1)) for x in ch)
+                if self.legacy
+                else nn.ModuleList(
+                    nn.Sequential(
+                        nn.Sequential(PConv(x, x,), Conv(x, c3, 1)),
+                        nn.Sequential(PConv(c3, c3,), Conv(c3, c3, 1)),
+                        nn.Conv2d(c3, self.nc, 1),
+                    )
+                    for x in ch
+                )
+            )
+        else:
+            self.cv3 = (
+                nn.ModuleList(nn.Sequential(Conv(x, c3, 3), Conv(c3, c3, 3), nn.Conv2d(c3, self.nc, 1)) for x in ch)
+                if self.legacy
+                else nn.ModuleList(
+                    nn.Sequential(
+                        nn.Sequential(DWConv(x, x, 3), Conv(x, c3, 1)),
+                        nn.Sequential(DWConv(c3, c3, 3), Conv(c3, c3, 1)),
+                        nn.Conv2d(c3, self.nc, 1),
+                    )
+                    for x in ch
+                )
+            )
+        self.dfl = DFL(self.reg_max) if self.reg_max > 1 else nn.Identity()
+
+        if self.end2end:
+            self.one2one_cv2 = copy.deepcopy(self.cv2)
+            self.one2one_cv3 = copy.deepcopy(self.cv3)
+
+    def forward(self, x):
+        """Concatenates and returns predicted bounding boxes and class probabilities."""
+        if self.end2end:
+            return self.forward_end2end(x)
+
+        for i in range(self.nl):
+            x[i] = torch.cat((self.cv2[i](x[i]), self.cv3[i](x[i])), 1)
+        if self.training:  # Training path
+            return x
+        y = self._inference(x)
+        return y if self.export else (y, x)
+
+    def forward_end2end(self, x):
+        """
+        Performs forward pass of the v10Detect module.
+
+        Args:
+            x (tensor): Input tensor.
+
+        Returns:
+            (dict, tensor): If not in training mode, returns a dictionary containing the outputs of both one2many and one2one detections.
+                           If in training mode, returns a dictionary containing the outputs of one2many and one2one detections separately.
+        """
+        x_detach = [xi.detach() for xi in x]
+        one2one = [
+            torch.cat((self.one2one_cv2[i](x_detach[i]), self.one2one_cv3[i](x_detach[i])), 1) for i in range(self.nl)
+        ]
+        for i in range(self.nl):
+            x[i] = torch.cat((self.cv2[i](x[i]), self.cv3[i](x[i])), 1)
+        if self.training:  # Training path
+            return {"one2many": x, "one2one": one2one}
+
+        y = self._inference(one2one)
+        y = self.postprocess(y.permute(0, 2, 1), self.max_det, self.nc)
+        return y if self.export else (y, {"one2many": x, "one2one": one2one})
+
+    def _inference(self, x):
+        """Decode predicted bounding boxes and class probabilities based on multiple-level feature maps."""
+        # Inference path
+        shape = x[0].shape  # BCHW
+        x_cat = torch.cat([xi.view(shape[0], self.no, -1) for xi in x], 2)
+        if self.format != "imx" and (self.dynamic or self.shape != shape):
+            self.anchors, self.strides = (x.transpose(0, 1) for x in make_anchors(x, self.stride, 0.5))
+            self.shape = shape
+
+        if self.export and self.format in {"saved_model", "pb", "tflite", "edgetpu", "tfjs"}:  # avoid TF FlexSplitV ops
+            box = x_cat[:, : self.reg_max * 4]
+            cls = x_cat[:, self.reg_max * 4 :]
+        else:
+            box, cls = x_cat.split((self.reg_max * 4, self.nc), 1)
+
+        if self.export and self.format in {"tflite", "edgetpu"}:
+            # Precompute normalization factor to increase numerical stability
+            # See https://github.com/ultralytics/ultralytics/issues/7371
+            grid_h = shape[2]
+            grid_w = shape[3]
+            grid_size = torch.tensor([grid_w, grid_h, grid_w, grid_h], device=box.device).reshape(1, 4, 1)
+            norm = self.strides / (self.stride[0] * grid_size)
+            dbox = self.decode_bboxes(self.dfl(box) * norm, self.anchors.unsqueeze(0) * norm[:, :2])
+        elif self.export and self.format == "imx":
+            dbox = self.decode_bboxes(
+                self.dfl(box) * self.strides, self.anchors.unsqueeze(0) * self.strides, xywh=False
+            )
+            return dbox.transpose(1, 2), cls.sigmoid().permute(0, 2, 1)
+        else:
+            dbox = self.decode_bboxes(self.dfl(box), self.anchors.unsqueeze(0)) * self.strides
+
+        return torch.cat((dbox, cls.sigmoid()), 1)
+
+    def bias_init(self):
+        """Initialize Detect() biases, WARNING: requires stride availability."""
+        m = self  # self.model[-1]  # Detect() module
+        # cf = torch.bincount(torch.tensor(np.concatenate(dataset.labels, 0)[:, 0]).long(), minlength=nc) + 1
+        # ncf = math.log(0.6 / (m.nc - 0.999999)) if cf is None else torch.log(cf / cf.sum())  # nominal class frequency
+        for a, b, s in zip(m.cv2, m.cv3, m.stride):  # from
+            a[-1].bias.data[:] = 1.0  # box
+            b[-1].bias.data[: m.nc] = math.log(5 / m.nc / (640 / s) ** 2)  # cls (.01 objects, 80 classes, 640 img)
+        if self.end2end:
+            for a, b, s in zip(m.one2one_cv2, m.one2one_cv3, m.stride):  # from
+                a[-1].bias.data[:] = 1.0  # box
+                b[-1].bias.data[: m.nc] = math.log(5 / m.nc / (640 / s) ** 2)  # cls (.01 objects, 80 classes, 640 img)
+
+    def decode_bboxes(self, bboxes, anchors, xywh=True):
+        """Decode bounding boxes."""
+        return dist2bbox(bboxes, anchors, xywh=xywh and (not self.end2end), dim=1)
+
+    @staticmethod
+    def postprocess(preds: torch.Tensor, max_det: int, nc: int = 80):
+        """
+        Post-processes YOLO model predictions.
+
+        Args:
+            preds (torch.Tensor): Raw predictions with shape (batch_size, num_anchors, 4 + nc) with last dimension
+                format [x, y, w, h, class_probs].
+            max_det (int): Maximum detections per image.
+            nc (int, optional): Number of classes. Default: 80.
+
+        Returns:
+            (torch.Tensor): Processed predictions with shape (batch_size, min(max_det, num_anchors), 6) and last
+                dimension format [x, y, w, h, max_class_prob, class_index].
+        """
+        batch_size, anchors, _ = preds.shape  # i.e. shape(16,8400,84)
+        boxes, scores = preds.split([4, nc], dim=-1)
+        index = scores.amax(dim=-1).topk(min(max_det, anchors))[1].unsqueeze(-1)
+        boxes = boxes.gather(dim=1, index=index.repeat(1, 1, 4))
+        scores = scores.gather(dim=1, index=index.repeat(1, 1, nc))
+        scores, index = scores.flatten(1).topk(min(max_det, anchors))
+        i = torch.arange(batch_size)[..., None]  # batch indices
+        return torch.cat([boxes[i, index // nc], scores[..., None], (index % nc)[..., None].float()], dim=-1)

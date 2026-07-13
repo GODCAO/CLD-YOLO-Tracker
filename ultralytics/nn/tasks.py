@@ -286,7 +286,7 @@ class BaseModel(nn.Module):
         """
         self = super()._apply(fn)
         m = self.model[-1]  # Detect()
-        if isinstance(m, (Detect, DyHead, DP_Detect)):  # includes all Detect subclasses like Segment, Pose, OBB, WorldDetect
+        if isinstance(m, (Detect, DyHead, DP_Detect, PDetect)):  # includes all Detect subclasses like Segment, Pose, OBB, WorldDetect
             m.stride = fn(m.stride)
             m.anchors = fn(m.anchors)
             m.strides = fn(m.strides)
@@ -352,7 +352,7 @@ class DetectionModel(BaseModel):
 
         # Build strides
         m = self.model[-1]  # Detect()
-        if isinstance(m, (Detect, DyHead, DP_Detect)):  # includes all Detect subclasses like Segment, Pose, OBB, WorldDetect
+        if isinstance(m, (Detect, DyHead, DP_Detect, PDetect)):  # includes all Detect subclasses like Segment, Pose, OBB, WorldDetect
             s = 256  # 2x min stride
             m.inplace = self.inplace
 
@@ -1053,7 +1053,8 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             DSCAA2C2f, DSCAC3k2, DSCABottleneck,
             Star_Bottleneck, Star_C3k2, Star_A2C2f, Star_A2C2f1, DPC3k2, DPA2C2f, DPConv, FEM, MAA,
             ODC3k, ODConv, ODC3k2, ODBottleneck, ODA2C2f, KWC3k, KWConv, KWC3k2, KWBottleneck, KWA2C2f,
-            SPPF26, C3k2_26, SPPF_LSKA, DBSPPF, MSFM, SPDConv, RFEM, SPD_DPConv, PiConv, PC3k2, PiC3k2,
+            SPPF26, C3k2_26, SPPF_LSKA, DBSPPF, MSFM, SPDConv, RFEM, SPD_DPConv, PiConv, PC3k2, PiC3k2, PsConv,
+            PsBottleneck, PsC3k2, GA_SPPF
 
         }:
             c1, c2 = ch[f], args[0]
@@ -1092,13 +1093,13 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
                 DWC3k2,
                 GSC3k2, GSA2C2f, DySnakeA2C2f, DySnakeC3k2,
                 DSCAA2C2f, DSCAC3k2, Star_C3k2, Star_A2C2f, Star_A2C2f1, DPC3k2, DPA2C2f,
-                ODC3k2, ODA2C2f, KWC3k2, KWA2C2f, C3k2_26, MSFM, PC3k2, PiC3k2,
+                ODC3k2, ODA2C2f, KWC3k2, KWA2C2f, C3k2_26, MSFM, PC3k2, PiC3k2, PsC3k2
 
             }:
                 args.insert(2, n)  # number of repeats
                 n = 1
             if m in {C3k2, DSC3k2, DWC3k2, RepC3k2, GSC3k2, DySnakeC3k2, ODC3k2, KWC3k2, C3k2_26,
-                     PC3k2, PiC3k2, DPC3k2, MSFM, DSCAC3k2, Star_C3k2,}:  # for M/L/X sizes
+                     PC3k2, PiC3k2, DPC3k2, MSFM, DSCAC3k2, Star_C3k2, PsC3k2}:  # for M/L/X sizes
                 legacy = False
                 if scale in "mlx":
                     args[3] = True
@@ -1121,14 +1122,15 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             args = [ch[f]]
         elif m is Concat:
             c2 = sum(ch[x] for x in f)
-        elif m in {Detect, WorldDetect, Segment, Pose, OBB, ImagePoolingAttn, v10Detect}:
+        elif m in {Detect, WorldDetect, Segment, Pose, OBB, ImagePoolingAttn, v10Detect, PDetect}:
             # print(f)
             args.append([ch[x] for x in f])
             if m is Segment:
                 args[2] = make_divisible(min(args[2], max_channels) * width, 8)
-            if m in {Detect, Segment, Pose, OBB}:
+            if m in {Detect, Segment, Pose, OBB, PDetect}:
                 m.legacy = legacy
-                m.light = True
+                if m is PDetect:
+                    m.light = True
         elif m is RTDETRDecoder:  # special case, channels arg must be passed in index 1
             args.insert(1, [ch[x] for x in f])
         elif m in {CBLinear, TorchVision, Index}:
@@ -1259,6 +1261,14 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             # Partial Convolution 模块
             c2 = args[0] if len(args) else ch[f]
             n_div = args[1] if len(args) > 1 else 4
+        elif m is ASFF2:
+            c1, c2 = [ch[f[0]], ch[f[1]]], args[0]
+            c2 = make_divisible(c2 * width, 8)
+            args = [c1, c2, *args[1:]]
+        elif m is ASFF3:
+            c1, c2 = [ch[f[0]], ch[f[1]], ch[f[2]]], args[0]
+            c2 = make_divisible(c2 * width, 8)
+            args = [c1, c2, *args[1:]]
         elif m is FasterNetBlock:
             # FasterNet Block 模块
             dim = int(args[0] * width) if len(args) else ch[f]
@@ -1412,7 +1422,7 @@ def guess_model_task(model):
         m = cfg["head"][-1][-2].lower()  # output module name
         if m in {"classify", "classifier", "cls", "fc"}:
             return "classify"
-        if "detect" in m or "dyhead" in m or "dp_detect" in m or "decoupled_head" in m:
+        if "detect" in m or "dyhead" in m or "dp_detect" in m or "pdetect" in m:
             return "detect"
         if m == "segment":
             return "segment"
@@ -1442,7 +1452,7 @@ def guess_model_task(model):
                 return "pose"
             elif isinstance(m, OBB):
                 return "obb"
-            elif isinstance(m, (Detect, WorldDetect, v10Detect, DyHead, DP_Detect)):
+            elif isinstance(m, (Detect, WorldDetect, v10Detect, DyHead, DP_Detect, PDetect)):
                 return "detect"
 
     # Guess from model filename
