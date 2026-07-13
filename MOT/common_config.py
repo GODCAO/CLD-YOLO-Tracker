@@ -4,8 +4,8 @@ import os
 
 # ===== 基本路径 =====
 dataset_root = ''
-# splits = ['train','val', 'test']
-splits = ['val', 'test']
+splits = ['train','val', 'test']
+
 img_dir_name = 'img1'
 img_ext = '.jpg'
 frame_rate = 30
